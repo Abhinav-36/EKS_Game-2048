@@ -1,0 +1,48 @@
+#creating a cluster
+eksctl create cluster --name demo-cluster --region us-east-1
+
+
+# creating a fargate profile in different namespace
+eksctl create fargateprofile ^
+    --cluster demo-cluster ^
+    --region us-east-1 ^
+    --name alb-sample-app ^
+    --namespace game-2048
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+
+
+#configuring oidc connector
+eksctl utils associate-iam-oidc-provider --cluster $cluster_name --approve
+
+
+# creating IAM policy & role for ALB to connect to other AWS resources
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+
+aws iam create-policy ^
+    --policy-name AWSLoadBalancerControllerIAMPolicy ^
+    --policy-document file://iam_policy.json
+
+eksctl create iamserviceaccount ^
+  --cluster=demo-cluster ^
+  --namespace=kube-system ^
+  --name=aws-load-balancer-controller ^
+  --role-name AmazonEKSLoadBalancerControllerRole ^
+  --attach-policy-arn=arn:aws:iam::637423616768:policy/AWSLoadBalancerControllerIAMPolicy ^
+  --approve
+
+#installing ALB loadbalancer through helm charts
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system ^
+  --set clusterName=demo-cluster ^
+  --set serviceAccount.create=false ^
+  --set serviceAccount.name=aws-load-balancer-controller ^
+  --set region=us-east-1 ^
+  --set vpcId=vpc-07d62e51fa550f465
+
+#wait till deployment is running
+kubectl get deployment -n kube-system aws-load-balancer-controller
+
+
+access the web app through dns of load balancer
